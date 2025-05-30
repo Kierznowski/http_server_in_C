@@ -74,10 +74,22 @@ int main()
         close(server_fd);
         exit(EXIT_FAILURE);
     }
-    // terminating and making string
-    buffer[bytes_received] = '\0';
+    buffer[bytes_received] = '\0'; // terminating and making string
 
     printf("--- Received request ---\n%s\n", buffer);
+
+    // Senfing response
+    const char *http_response = 
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: 12\r\n"
+        "\r\n"
+        "Hello friend";
+
+    int bytes_sent = send(client_fd, http_response, strlen(http_response), 0);
+    if(bytes_sent < 0) {
+        perror("send failed");
+    }
 
     // Close sockets
     close(client_fd);
