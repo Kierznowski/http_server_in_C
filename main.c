@@ -8,13 +8,17 @@
 
 #define PORT 8080
 #define BACKLOG 10
+#define BUFFER_SIZE 4096
 
 int main()
 {
+
     // File descriptors for server and client addreses
     int server_fd, client_fd;
     struct sockaddr_in server_addr, client_addr;
     socklen_t addr_len = sizeof(client_addr);
+    
+
 
     // Creating TCP Socket: AF_INET - IPv4 address (alt. AF_INET6), SOCK_STREAM - TCP stream (alt. SOCK_DGRAM)
     // 0 - default protocol 0 = IPPROTO_TCP
@@ -59,9 +63,21 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    printf("Connection accepted from %s:%d\n",
-        inet_ntoa(client_addr.sin_addr), // converting binary IP address to "xxx.xxx.xxx.xxx" form
-        ntohs(client_addr.sin_port));
+    // Handling Request
+    char buffer[BUFFER_SIZE];
+    int bytes_received;
+
+    bytes_received = recv(client_fd, buffer, BUFFER_SIZE - 1, 0);
+    if(bytes_received < 0) {
+        perror("recv failed");
+        close(client_fd);
+        close(server_fd);
+        exit(EXIT_FAILURE);
+    }
+    // terminating and making string
+    buffer[bytes_received] = '\0';
+
+    printf("--- Received request ---\n%s\n", buffer);
 
     // Close sockets
     close(client_fd);
