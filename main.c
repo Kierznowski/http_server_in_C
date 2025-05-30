@@ -78,13 +78,38 @@ int main()
 
     printf("--- Received request ---\n%s\n", buffer);
 
-    // Senfing response
-    const char *http_response = 
-        "HTTP/1.1 200 OK\r\n"
+    // Parsing request
+    char method[8], path[1024], version[16];
+
+    sscanf(buffer, "%7s %1023s %15s", method, path, version);
+    printf("--- Parsed Request ---\n");
+    printf("Method: %s\n", method);
+    printf("Path: %s\n", path);
+    printf("Version: %s\n", version);
+   
+
+    // Sending response
+    const char *body;
+    char http_response[BUFFER_SIZE];
+
+    if(strcmp(path, "/") == 0) {
+        body = "This is homepage";
+    } else if (strcmp(path, "/hello") == 0) {
+        body = "Hello friend";
+    } else {
+        body = "404 Not Found";
+    }
+    
+    snprintf(http_response, sizeof(http_response),
+        "HTTP/1.1 %s\r\n"
         "Content-Type: text/plain\r\n"
-        "Content-Length: 12\r\n"
+        "Content-Length: %lu\r\n"
         "\r\n"
-        "Hello friend";
+        "%s",
+        (strcmp(body, "404 Not Found") == 0) ? "404 Not Found" : "200 OK",
+        strlen(body),
+        body
+    );
 
     int bytes_sent = send(client_fd, http_response, strlen(http_response), 0);
     if(bytes_sent < 0) {
