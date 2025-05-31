@@ -52,73 +52,68 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+
     printf("Server is listening on port %d...\n", PORT);
 
-    // Accepting a client. Creating socket for the client (client_fd).
-    client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &addr_len);
-    if (client_fd < 0)
-    {
-        perror("accept failed");
-        close(server_fd);
-        exit(EXIT_FAILURE);
-    }
-
-    // Handling Request
     char buffer[BUFFER_SIZE];
-    int bytes_received;
-
-    bytes_received = recv(client_fd, buffer, BUFFER_SIZE - 1, 0);
-    if(bytes_received < 0) {
-        perror("recv failed");
-        close(client_fd);
-        close(server_fd);
-        exit(EXIT_FAILURE);
-    }
-    buffer[bytes_received] = '\0'; // terminating and making string
-
-    printf("--- Received request ---\n%s\n", buffer);
-
-    // Parsing request
-    char method[8], path[1024], version[16];
-
-    sscanf(buffer, "%7s %1023s %15s", method, path, version);
-    printf("--- Parsed Request ---\n");
-    printf("Method: %s\n", method);
-    printf("Path: %s\n", path);
-    printf("Version: %s\n", version);
-   
-
-    // Sending response
-    const char *body;
     char http_response[BUFFER_SIZE];
+    while (1)
+    {
+        printf("Waiting for a new connection...\n");
 
-    if(strcmp(path, "/") == 0) {
-        body = "This is homepage";
-    } else if (strcmp(path, "/hello") == 0) {
-        body = "Hello friend";
-    } else {
-        body = "404 Not Found";
-    }
+        // Accepting a client. Creating socket for the client (client_fd).
+        client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &addr_len);
+        if (client_fd < 0)
+        {
+            perror("accept failed");
+            continue;
+        }
+
+        printf("Connection accepted from %s:%d\n",
+            inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+       
+        // Handling Request
+        int bytes_received = recv(client_fd, buffer, BUFFER_SIZE - 1, 0); 
+        if(bytes_received < 0) {
+            perror("recv failed");
+            close(client_fd);
+            continue;
+        }
+        buffer[bytes_received] = '\0';
+        
+        // Parsing request
+        char method[8], path[1024], version[16];
+        sscanf(buffer, "%7s %1023s %15s", method, path, version);
+        printf("--- Parsed Request ---\n");
+        printf("Method: %s\n", method);
+        printf("Path: %s\n", path);
+        printf("Version: %s\n", version);
+
+        // Sending response
+        const char *body;
+        if(strcmp(path, "/") == 0) {
+            body = "This is homepage";
+        } else if (strcmp(path, "/hello") == 0) {
+            body = "Hello friend";
+        } else {
+            body = "404 Not Found";
+        }
     
-    snprintf(http_response, sizeof(http_response),
-        "HTTP/1.1 %s\r\n"
-        "Content-Type: text/plain\r\n"
-        "Content-Length: %lu\r\n"
-        "\r\n"
-        "%s",
-        (strcmp(body, "404 Not Found") == 0) ? "404 Not Found" : "200 OK",
-        strlen(body),
-        body
-    );
+        snprintf(http_response, sizeof(http_response),
+            "HTTP/1.1 %s\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: %lu\r\n"
+            "\r\n"
+            "%s",
+            (strcmp(body, "404 Not Found") == 0) ? "404 Not Found" : "200 OK",
+            strlen(body),
+            body
+        );
 
-    int bytes_sent = send(client_fd, http_response, strlen(http_response), 0);
-    if(bytes_sent < 0) {
-        perror("send failed");
+        send(client_fd, http_response, strlen(http_response), 0);
+
+        close(client_fd);
     }
-
-    // Close sockets
-    close(client_fd);
-    close(server_fd);
 
     return 0;
 }
