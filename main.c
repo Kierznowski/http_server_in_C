@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <sys/stat.h> // files size
+#include <ctype.h> // is digit function
 
 #define PORT 8080
 #define BACKLOG 10
@@ -17,6 +18,8 @@ void parse_request(const char *buffer, char *method, char *path, char *version);
 void* handle_client_req(void* args);
 void log_request(const char* method, const char* path, const char* version);
 char* read_file(const char* path, size_t* out_size);
+void handle_get(int client_fd, const char* path);
+void handle_post(int client_fd, const char* buffer, int received_len);
 
 typedef struct {
     int client_fd;
@@ -134,57 +137,25 @@ void* handle_client_req(void* arg) {
     parse_request(buffer, method, path, version);
     log_request(method, path, version);
 
-    // blocking traversing through files (/..)
-    if(strstr(path, "..")) {
-        const char *body = "403 Forbidden";
-        snprintf(http_response, sizeof(http_response),
-            "HTTP/1.1 403 Forbidden\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: %lu\r\n"
-            "\r\n"
-            "%s",
-            strlen(body),
-            body
-        );
-        send(client_fd, http_response, strlen(http_response), 0);
-        close(client_fd);
-        return NULL;
-    }
-
-    if(strcmp(path, "/") == 0) {
-        strcpy(path, "/index.html");
-    }
-
-    char file_path[1024 + 16];
-    snprintf(file_path, sizeof(file_path), "./static%s", path);
-
-    size_t file_size;
-    char *file_content = read_file(file_path, &file_size);
-
-    if(!file_content) {
-        const char *body = "404 Not Found";
-        snprintf(http_response, sizeof(http_response),
-            "HTTP/1.1 404 Not Found\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: %lu\r\n"
-            "\r\n"
-            "%s",
-            strlen(body),
-            body
-        );
-        send(client_fd, http_response, strlen(http_response), 0);
+    if(strcmp(method, "GET") == 0) {
+        handle_get(client_fd, path);
+    } else if(strcmp(method, "POST") == 0) {
+        handle_post(client_fd, buffer, bytes_received);
     } else {
+        const char *body = "405 Method Not Allowed";
         snprintf(http_response, sizeof(http_response),
-            "HTTP/1.1 200 OK\r\n"
+            "HTTP/1.1 405 Method Not Allowed\r\n"
             "Content-Type: text/plain\r\n"
-            "Conetnt-Length: %lu\r\n"
-            "\r\n",
-            file_size
+            "Content-Length: %lu\r\n"
+            "Allow: GET, POST\r\n"
+            "\r\n"
+            "%s",
+            strlen(body),
+            body
         );
         send(client_fd, http_response, strlen(http_response), 0);
-        send(client_fd, file_content, file_size, 0);
-        free(file_content);
-    }  
+    }
+
 
     close(client_fd);
     return NULL;
@@ -193,16 +164,6 @@ void* handle_client_req(void* arg) {
 void parse_request(const char *buffer, char *method, char *path, char *version) {
     sscanf(buffer, "%7s %1023s %15s", method, path, version);
 }
-
-/*const char* route_path(const char* path) {
-    if(strcmp(path, "/") == 0) {
-        return "This is homepage";
-    } else if (strcmp(path, "/hello") == 0) {
-        return "Hello friend";
-    } else {
-        return "404 Not Found";
-    }
-}*/
 
 void log_request(const char* method, const char* path, const char* version) {
     printf("--- Parsed Request ---\n");
@@ -231,4 +192,111 @@ char* read_file(const char* path, size_t* out_size) {
 
     *out_size = size;
     return buffer;
+}
+
+void handle_get(int client_fd, const char* path) {
+    char http_response[BUFFER_SIZE];
+
+    if(strstr(path, "..")) {
+        const char *body = "403 Forbidden";
+        snprintf(http_response, sizeof(http_response),
+            "HTTP/1.1 403 Forbidden\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: %lu\r\n"
+            "\r\n"
+            "%s",
+            strlen(body),
+            body
+        );
+        send(client_fd, http_response, strlen(http_response), 0);
+        return;
+    }
+
+    if(strcmp(path, "/") == 0) {
+        path = "/index.html";
+    }
+
+    char file_path[1024+16];
+    snprintf(file_path, sizeof(file_path), "./static%s", path);
+
+    size_t file_size;
+    char *file_content = read_file(file_path, &file_size);
+    
+    if(!file_content) {
+        const char *body = "404 Not Found";
+        snprintf(http_response, sizeof(http_response),
+            "HTTP/1.1 404 Not Found\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: %lu\r\n"
+            "\r\n"
+            "%s",
+            strlen(body),
+            body
+        );
+        send(client_fd, http_response, strlen(http_response), 0);
+    } else {
+        snprintf(http_response, sizeof(http_response),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: %lu\r\n"
+            "\r\n",
+            file_size
+        );
+        send(client_fd, http_response, strlen(http_response), 0);
+        send(client_fd, file_content, file_size, 0);
+        free(file_content);
+    }
+
+    void handle_post(int client_fd, const char* buffer, int received_len) {
+        char http_response[BUFFER_SIZE];
+
+        const char *body_start = strstr(buffer, "\r\n\r\n");
+        if (!body_start) {
+            const char *body = "400 Bad Request";
+            snprintf(http_response, sizeof(http_response),
+                "HTTP/1.1 400 Bad Request\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: %lu\r\n"
+                "\r\n"
+                "%s", strlen(body), body);
+            send(client_fd, http_response, strlen(http_response), 0);
+            return;
+        }
+
+        body_start += 4;
+        int header_len = body_start - buffer; // buffer points to the begining
+        int body_len_in_buffer = received_len - header_len; // compute length of data that we already received
+
+        const char *cl_header = strstr(buffer, "Content-Length:"); // finding length header
+        int expected_length = 0;
+
+        if(cl_header) {
+            cl_header += strlen("Content-Length:");
+            while(*cl_header == ' ') cl_header++;
+
+            char len_buf[16] = {0};
+            int i = 0;
+            while(isdigit(*cl_header) && i < (int)(sizeof(len_buf) - 1)) {
+                len_buf[i++] = *cl_header++;
+            }
+            expected_length = atoi(len_buf);
+        }
+
+        if(expected_length <= 0) {
+            const char *body = "411 Length Required";
+            snprintf(http_response, sizeof(http_response),
+                "HTTP/1.1 411 Length Required\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: %lu\r\n"
+                "\r\n"
+                "%s", 
+                strlen(body), 
+                body
+            );
+            send(client_fd, http_response, strlen(http_response), 0);
+            return;
+        }
+
+        // rest of the not fitting data
+    }
 }
