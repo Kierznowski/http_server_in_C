@@ -5,6 +5,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <pthread.h>
+#include <sys/stat.h> // files size
 
 #define PORT 8080
 #define BACKLOG 10
@@ -14,6 +16,14 @@ int setup_server_socket();
 void handle_client_request(int client_fd, struct sockaddr_in client_addr);
 void parse_request(const char *buffer, char *method, char *path, char *version);
 const char* route_path(const char* path);
+void* handle_client_req(void* args);
+void log_request(const char* method, const char* path, const char* version);
+
+typedef struct {
+    int client_fd;
+    struct sockaddr_in client_addr;
+} client_info_t;
+
 
 int main() {
     int server_fd = setup_server_socket(); 
@@ -37,7 +47,25 @@ int main() {
             continue;
         }
 
-        handle_client_request(client_fd, client_addr);
+        client_info_t *client_info = malloc(sizeof(client_info_t));
+        if(!client_info) {
+            perror("malloc failed");
+            close(client_fd);
+            continue;
+        }
+
+        client_info->client_fd = client_fd;
+        client_info->client_addr = client_addr;
+
+        //handling request asynchronously
+        pthread_t thread_id;
+        if(pthread_create(&thread_id, NULL, handle_client_req, client_info) != 0) {
+            perror("pthread_create failed");
+            close(client_fd);
+            free(client_info);
+        } else {
+            pthread_detach(thread_id); // cleanup thread after it ends
+        }
     }
 
     close(server_fd);
@@ -81,7 +109,12 @@ int setup_server_socket() {
     return server_fd;
 }
 
-void handle_client_request(int client_fd, struct sockaddr_in client_addr) {
+void* handle_client_req(void* arg) {
+    client_info_t *client_info = (client_info_t*)arg;
+    int client_fd = client_info->client_fd;
+    struct sockaddr_in client_addr = client_info->client_addr;
+    free(client_info);
+
     char buffer[BUFFER_SIZE];
     char http_response[BUFFER_SIZE];
 
@@ -92,7 +125,7 @@ void handle_client_request(int client_fd, struct sockaddr_in client_addr) {
     if(bytes_received < 0) {
         perror("recv failed");
         close(client_fd);
-        return;
+        return NULL;
     }
     buffer[bytes_received] = '\0';
         
@@ -116,6 +149,7 @@ void handle_client_request(int client_fd, struct sockaddr_in client_addr) {
 
     send(client_fd, http_response, strlen(http_response), 0);
     close(client_fd);
+    return NULL;
 }
 
 void parse_request(const char *buffer, char *method, char *path, char *version) {
