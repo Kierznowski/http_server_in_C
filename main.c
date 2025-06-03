@@ -13,11 +13,10 @@
 #define BUFFER_SIZE 4096
 
 int setup_server_socket();
-void handle_client_request(int client_fd, struct sockaddr_in client_addr);
 void parse_request(const char *buffer, char *method, char *path, char *version);
-const char* route_path(const char* path);
 void* handle_client_req(void* args);
 void log_request(const char* method, const char* path, const char* version);
+char* read_file(const char* path, size_t* out_size);
 
 typedef struct {
     int client_fd;
@@ -110,17 +109,18 @@ int setup_server_socket() {
 }
 
 void* handle_client_req(void* arg) {
+    // parse client_fd and client_addr
     client_info_t *client_info = (client_info_t*)arg;
     int client_fd = client_info->client_fd;
     struct sockaddr_in client_addr = client_info->client_addr;
     free(client_info);
 
-    char buffer[BUFFER_SIZE];
-    char http_response[BUFFER_SIZE];
-
     printf("Connection accepted from %s:%d\n",
             inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
+    // copy received data into buffer
+    char buffer[BUFFER_SIZE];
+    char http_response[BUFFER_SIZE];
     int bytes_received = recv(client_fd, buffer, BUFFER_SIZE - 1, 0); 
     if(bytes_received < 0) {
         perror("recv failed");
@@ -128,26 +128,64 @@ void* handle_client_req(void* arg) {
         return NULL;
     }
     buffer[bytes_received] = '\0';
-        
+    
+    // parse data from buffer
     char method[8], path[1024], version[16];
     parse_request(buffer, method, path, version);
-
     log_request(method, path, version);
 
-    const char *body = route_path(path);
-    
-    snprintf(http_response, sizeof(http_response),
-        "HTTP/1.1 %s\r\n"
-        "Content-Type: text/plain\r\n"
-        "Content-Length: %lu\r\n"
-        "\r\n"
-        "%s",
-        (strcmp(body, "404 Not Found") == 0) ? "404 Not Found" : "200 OK",
-        strlen(body),
-        body
-    );
+    // blocking traversing through files (/..)
+    if(strstr(path, "..")) {
+        const char *body = "403 Forbidden";
+        snprintf(http_response, sizeof(http_response),
+            "HTTP/1.1 403 Forbidden\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: %lu\r\n"
+            "\r\n"
+            "%s",
+            strlen(body),
+            body
+        );
+        send(client_fd, http_response, strlen(http_response), 0);
+        close(client_fd);
+        return NULL;
+    }
 
-    send(client_fd, http_response, strlen(http_response), 0);
+    if(strcmp(path, "/") == 0) {
+        strcpy(path, "/index.html");
+    }
+
+    char file_path[1024 + 16];
+    snprintf(file_path, sizeof(file_path), "./static%s", path);
+
+    size_t file_size;
+    char *file_content = read_file(file_path, &file_size);
+
+    if(!file_content) {
+        const char *body = "404 Not Found";
+        snprintf(http_response, sizeof(http_response),
+            "HTTP/1.1 404 Not Found\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: %lu\r\n"
+            "\r\n"
+            "%s",
+            strlen(body),
+            body
+        );
+        send(client_fd, http_response, strlen(http_response), 0);
+    } else {
+        snprintf(http_response, sizeof(http_response),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain\r\n"
+            "Conetnt-Length: %lu\r\n"
+            "\r\n",
+            file_size
+        );
+        send(client_fd, http_response, strlen(http_response), 0);
+        send(client_fd, file_content, file_size, 0);
+        free(file_content);
+    }  
+
     close(client_fd);
     return NULL;
 }
@@ -156,7 +194,7 @@ void parse_request(const char *buffer, char *method, char *path, char *version) 
     sscanf(buffer, "%7s %1023s %15s", method, path, version);
 }
 
-const char* route_path(const char* path) {
+/*const char* route_path(const char* path) {
     if(strcmp(path, "/") == 0) {
         return "This is homepage";
     } else if (strcmp(path, "/hello") == 0) {
@@ -164,11 +202,33 @@ const char* route_path(const char* path) {
     } else {
         return "404 Not Found";
     }
-}
+}*/
 
 void log_request(const char* method, const char* path, const char* version) {
     printf("--- Parsed Request ---\n");
     printf("Method: %s\n", method);
     printf("Path: %s\n", path);
     printf("Version: %s\n", version);
+}
+
+char* read_file(const char* path, size_t* out_size) {
+    FILE* file = fopen(path, "rb");
+    if(!file) return NULL;
+
+    fseek(file, 0, SEEK_END);
+    size_t size = ftell(file);
+    rewind(file);
+
+    char* buffer = malloc(size + 1);
+    if(!buffer) {
+        fclose(file);
+        return NULL;
+    }
+
+    fread(buffer, 1, size, file);
+    buffer[size] = '\0';
+    fclose(file);
+
+    *out_size = size;
+    return buffer;
 }
