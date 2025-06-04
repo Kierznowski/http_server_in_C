@@ -10,7 +10,7 @@
 
 #define BUFFER_SIZE 4096
 
-void handle_get(int client_fd, const char* path, int send_body) {
+int handle_get(int client_fd, const char* path, int send_body) {
     char http_response[BUFFER_SIZE];
 
     if(strstr(path, "..")) {
@@ -22,7 +22,7 @@ void handle_get(int client_fd, const char* path, int send_body) {
             "\r\n%s",
             strlen(body), body);
         send(client_fd, http_response, strlen(http_response), 0);
-        return;
+        return 403;
     }
 
     if(strcmp(path, "/") == 0) {
@@ -47,7 +47,7 @@ void handle_get(int client_fd, const char* path, int send_body) {
             body
         );
         send(client_fd, http_response, strlen(http_response), 0);
-        return;
+        return 404;
     }
 
     snprintf(http_response, sizeof(http_response),
@@ -62,9 +62,10 @@ void handle_get(int client_fd, const char* path, int send_body) {
         send(client_fd, file_content, file_size, 0);
     }
     free(file_content);
+    return 200;
 }
     
-void handle_post(int client_fd, const char* buffer, int received_len) {
+int handle_post(int client_fd, const char* buffer, int received_len) {
     char http_response[BUFFER_SIZE];
 
     const char *body_start = strstr(buffer, "\r\n\r\n");
@@ -76,7 +77,7 @@ void handle_post(int client_fd, const char* buffer, int received_len) {
             "Content-Length: %lu\r\n"
             "\r\n%s", strlen(body), body);
         send(client_fd, http_response, strlen(http_response), 0);
-        return;
+        return 400;
     }
     body_start += 4; // set pointer
 
@@ -106,14 +107,14 @@ void handle_post(int client_fd, const char* buffer, int received_len) {
             "Content-Length: %lu\r\n"
             "\r\n%s", strlen(body), body);
         send(client_fd, http_response, strlen(http_response), 0);
-        return;
+        return 411;
     }
     
     char *full_body = malloc(expected_length + 1); // +1 for \0 termination
     if(!full_body) {
         perror("malloc");
         close(client_fd);
-        return;
+        return 500;
     }
 
     memcpy(full_body, body_start, body_len_in_buffer);
@@ -126,7 +127,7 @@ void handle_post(int client_fd, const char* buffer, int received_len) {
             perror("recv (continuation)");
             free(full_body);
             close(client_fd);
-            return;
+            return 500;
         }
         total_received += r;
     }
@@ -145,9 +146,10 @@ void handle_post(int client_fd, const char* buffer, int received_len) {
     send(client_fd, http_response, strlen(http_response), 0);
     
     free(full_body);
+    return 200;
 }
 
-void handle_options(int client_fd) {
+int handle_options(int client_fd) {
     const char* allowed_methods = "GET, POST, HEAD, OPTIONS";
     char response[BUFFER_SIZE];
 
@@ -159,4 +161,5 @@ void handle_options(int client_fd) {
         allowed_methods);
 
     send(client_fd, response, strlen(response), 0);
+    return 204;
 }

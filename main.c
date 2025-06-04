@@ -133,18 +133,20 @@ void* handle_client_req(void* arg) {
     // parse data from buffer
     char method[8], path[1024], version[16];
     parse_request(buffer, method, path, version);
-    log_request(method, path, version);
+    int response_code;
+    const char* user_agent = get_header_value(buffer, "User-Agent");
 
     if(strcmp(method, "GET") == 0) {
-        handle_get(client_fd, path, 1);
+        response_code = handle_get(client_fd, path, 1);
     } else if (strcmp(method, "HEAD") == 0){
-        handle_get(client_fd, path, 0);
+        response_code = handle_get(client_fd, path, 0);
     } else if(strcmp(method, "POST") == 0) {
-        handle_post(client_fd, buffer, bytes_received);
+        response_code = handle_post(client_fd, buffer, bytes_received);
     } else if(strcmp(method, "OPTIONS") == 0) {
-        handle_options(client_fd);
+        response_code = handle_options(client_fd);
     } else {
         const char *body = "405 Method Not Allowed";
+        response_code = 405;
         snprintf(http_response, sizeof(http_response),
             "HTTP/1.1 405 Method Not Allowed\r\n"
             "Content-Type: text/plain\r\n"
@@ -158,6 +160,10 @@ void* handle_client_req(void* arg) {
         send(client_fd, http_response, strlen(http_response), 0);
     }
 
+    char client_ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(client_addr.sin_addr), client_ip, INET_ADDRSTRLEN);
+    
+    log_request(client_ip, method, path, version, response_code, user_agent);
 
     close(client_fd);
     return NULL;
