@@ -18,8 +18,12 @@ void parse_request(const char *buffer, char *method, char *path, char *version);
 void* handle_client_req(void* args);
 void log_request(const char* method, const char* path, const char* version);
 char* read_file(const char* path, size_t* out_size);
-void handle_get(int client_fd, const char* path);
+void handle_get(int client_fd, const char* path, int send_body);
 void handle_post(int client_fd, const char* buffer, int received_len);
+const char* get_mime_type(const char* path);
+void handle_options(int client_fd);
+
+
 
 typedef struct {
     int client_fd;
@@ -138,9 +142,13 @@ void* handle_client_req(void* arg) {
     log_request(method, path, version);
 
     if(strcmp(method, "GET") == 0) {
-        handle_get(client_fd, path);
+        handle_get(client_fd, path, 1);
+    } else if (strcmp(method, "HEAD") == 0){
+        handle_get(client_fd, path, 0);
     } else if(strcmp(method, "POST") == 0) {
         handle_post(client_fd, buffer, bytes_received);
+    } else if(strcmp(method, "OPTIONS") == 0) {
+        handle_options(client_fd);
     } else {
         const char *body = "405 Method Not Allowed";
         snprintf(http_response, sizeof(http_response),
@@ -194,7 +202,7 @@ char* read_file(const char* path, size_t* out_size) {
     return buffer;
 }
 
-void handle_get(int client_fd, const char* path) {
+void handle_get(int client_fd, const char* path, int send_body) {
     char http_response[BUFFER_SIZE];
 
     if(strstr(path, "..")) {
@@ -221,6 +229,7 @@ void handle_get(int client_fd, const char* path) {
 
     size_t file_size;
     char *file_content = read_file(file_path, &file_size);
+    const char* content_type = get_mime_type(path);
     
     if(!file_content) {
         const char *body = "404 Not Found";
@@ -237,66 +246,139 @@ void handle_get(int client_fd, const char* path) {
     } else {
         snprintf(http_response, sizeof(http_response),
             "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain\r\n"
+            "Content-Type: %s\r\n"
             "Content-Length: %lu\r\n"
             "\r\n",
+            content_type,
             file_size
         );
         send(client_fd, http_response, strlen(http_response), 0);
-        send(client_fd, file_content, file_size, 0);
+        if(send_body) {
+            send(client_fd, file_content, file_size, 0);
+        }
         free(file_content);
     }
+}
+    
+void handle_post(int client_fd, const char* buffer, int received_len) {
+    char http_response[BUFFER_SIZE];
 
-    void handle_post(int client_fd, const char* buffer, int received_len) {
-        char http_response[BUFFER_SIZE];
-
-        const char *body_start = strstr(buffer, "\r\n\r\n");
-        if (!body_start) {
-            const char *body = "400 Bad Request";
-            snprintf(http_response, sizeof(http_response),
-                "HTTP/1.1 400 Bad Request\r\n"
-                "Content-Type: text/plain\r\n"
-                "Content-Length: %lu\r\n"
-                "\r\n"
-                "%s", strlen(body), body);
-            send(client_fd, http_response, strlen(http_response), 0);
-            return;
-        }
-
-        body_start += 4;
-        int header_len = body_start - buffer; // buffer points to the begining
-        int body_len_in_buffer = received_len - header_len; // compute length of data that we already received
-
-        const char *cl_header = strstr(buffer, "Content-Length:"); // finding length header
-        int expected_length = 0;
-
-        if(cl_header) {
-            cl_header += strlen("Content-Length:");
-            while(*cl_header == ' ') cl_header++;
-
-            char len_buf[16] = {0};
-            int i = 0;
-            while(isdigit(*cl_header) && i < (int)(sizeof(len_buf) - 1)) {
-                len_buf[i++] = *cl_header++;
-            }
-            expected_length = atoi(len_buf);
-        }
-
-        if(expected_length <= 0) {
-            const char *body = "411 Length Required";
-            snprintf(http_response, sizeof(http_response),
-                "HTTP/1.1 411 Length Required\r\n"
-                "Content-Type: text/plain\r\n"
-                "Content-Length: %lu\r\n"
-                "\r\n"
-                "%s", 
-                strlen(body), 
-                body
-            );
-            send(client_fd, http_response, strlen(http_response), 0);
-            return;
-        }
-
-        // rest of the not fitting data
+    const char *body_start = strstr(buffer, "\r\n\r\n");
+    // no body
+    if (!body_start) {
+        const char *body = "400 Bad Request";
+        snprintf(http_response, sizeof(http_response),
+            "HTTP/1.1 400 Bad Request\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: %lu\r\n"
+            "\r\n"
+            "%s", strlen(body), body);
+        send(client_fd, http_response, strlen(http_response), 0);
+        return;
     }
+    // set pointer
+    body_start += 4;
+
+    int header_len = body_start - buffer;
+    int body_len_in_buffer = received_len - header_len;
+
+    const char *cl_header = strstr(buffer, "Content-Length:"); // finding content=length header
+    int expected_length = 0;
+    //parse expected body length
+    if(cl_header) {
+        cl_header += strlen("Content-Length:");
+        while(*cl_header == ' ') cl_header++;
+
+        char len_buf[16] = {0};
+        int i = 0;
+        while(isdigit(*cl_header) && i < (int)(sizeof(len_buf) - 1)) {
+            len_buf[i++] = *cl_header++;
+        }
+        expected_length = atoi(len_buf); // converting char[] to int
+    }
+
+    if(expected_length <= 0) {
+        const char *body = "411 Length Required";
+        snprintf(http_response, sizeof(http_response),
+            "HTTP/1.1 411 Length Required\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: %lu\r\n"
+            "\r\n"
+            "%s", 
+            strlen(body), body);
+            send(client_fd, http_response, strlen(http_response), 0);
+            return;
+    }
+    
+    char *full_body = malloc(expected_length + 1); // +1 for \0 termination
+    if(!full_body) {
+        perror("malloc");
+        close(client_fd);
+        return;
+    }
+
+    memcpy(full_body, body_start, body_len_in_buffer);
+    int total_received = body_len_in_buffer;
+
+    // if there is remaining data
+    while(total_received < expected_length) {
+        int r = recv(client_fd, full_body + total_received, expected_length - total_received, 0);
+        if(r <= 0) {
+            perror("recv (continuation)");
+            free(full_body);
+            close(client_fd);
+            return;
+        }
+        total_received += r;
+    }
+
+    full_body[expected_length] = '\0';
+
+    printf("POST body (%d bytes):\n%s\n", expected_length, full_body);
+
+    const char *response = "POST data received\n";
+    snprintf(http_response, sizeof(http_response),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: %lu\r\n"
+        "\r\n"
+        "%s", strlen(response), response);
+    send(client_fd, http_response, strlen(http_response), 0);
+    
+    free(full_body);
+}
+
+// get media type
+const char* get_mime_type(const char* path) {
+    const char* ext = strchr(path, '.');
+    if(!ext) return "application/octet-stream"; // binary file
+
+    ext++;
+    if(strcmp(ext, "html") == 0 || strcmp(ext, "htm") == 0) return "text/html";
+    if(strcmp(ext, "css") == 0) return "text/css";
+    if(strcmp(ext, "js") == 0) return "application/javascript";
+    if(strcmp(ext, "json") == 0) return "application/json";
+    if(strcmp(ext, "png") == 0) return "image/png";
+    if(strcmp(ext, "jpg") == 0 || strcmp(ext, "jpeg") == 0) return "image/jpeg";
+    if(strcmp(ext, "gif") == 0) return "image/gif";
+    if(strcmp(ext, "svg") == 0) return "image/svg+xml";
+    if(strcmp(ext, "txt") == 0) return "text/plain";
+    if(strcmp(ext, "pdf") == 0) return "application/pdf";
+    if(strcmp(ext, "ico") == 0) return "image/x-icon";
+
+    return "application/octet-stream"; // default binary
+}
+
+void handle_options(int client_fd) {
+    const char* allowed_methods = "GET, POST, HEAD, OPTIONS";
+    char response[BUFFER_SIZE];
+
+    snprintf(response, sizeof(response),
+        "HTTP/1.1 204 No Content\r\n"
+        "Allow: %s\r\n"
+        "Content-Length: 0\r\n"
+        "\r\n",
+        allowed_methods);
+
+    send(client_fd, response, strlen(response), 0);
 }
