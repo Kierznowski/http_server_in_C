@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 char* read_file(const char* path, size_t* out_size) {
     FILE* file = fopen(path, "rb");
@@ -44,4 +45,46 @@ const char* get_mime_type(const char* path) {
     if(strcmp(ext, "ico") == 0) return "image/x-icon";
 
     return "application/octet-stream"; // default binary
+}
+
+// decoding url (%xx)
+void urldecode(char *dst, const char *src) {
+    char a, b;
+    while (*src) {
+        if((*src == '%') && ((a = src[1]) && (b = src[2]))
+            && (isdigit(a) && isdigit(b))) {
+            
+            if(a >= 'a') a -= 'a' - 'A';
+            if(a >= 'A') a -= ('A' - 10); else a -= '0';
+            if(b >= 'a') b -= 'a' - 'A';
+            if(b >= 'A') b -= ('A' - 10); else b -= '0';
+
+            *dst++ = 16 * a + b;
+            src += 3;
+        } else if (*src == '+') {
+            *dst++ = ' ';
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+}
+
+void parse_form_data(const char *body) {
+    char *data = strdup(body);
+    char *token = strtok(data, "&");
+    while(token) {
+        char *eq = strchr(token, '=');
+        if(eq) {
+            *eq = '\0';
+            char decoded_key[1024];
+            char decoded_val[1024];
+            urldecode(decoded_key, token);
+            urldecode(decoded_val, eq + 1);
+            printf("Parsed: '%s' = '%s'\n", decoded_key, decoded_val);
+        }
+        token = strtok(NULL, "&");
+    }
+    free(data);
 }

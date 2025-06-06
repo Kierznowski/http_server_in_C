@@ -5,5 +5,6 @@
 
 char* read_file(const char* path, size_t* out_size);
 const char* get_mime_type(const char* path);
+void parse_form_data(const char *body);
 
 #endif

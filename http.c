@@ -97,9 +97,7 @@ int handle_post(int client_fd, const char* buffer, int received_len) {
             len_buf[i++] = *cl_header++;
         }
         expected_length = atoi(len_buf); // converting char[] to int
-    }
-
-    if(expected_length <= 0) {
+    } else {
         const char *body = "411 Length Required";
         snprintf(http_response, sizeof(http_response),
             "HTTP/1.1 411 Length Required\r\n"
@@ -109,7 +107,7 @@ int handle_post(int client_fd, const char* buffer, int received_len) {
         send(client_fd, http_response, strlen(http_response), 0);
         return 411;
     }
-    
+
     char *full_body = malloc(expected_length + 1); // +1 for \0 termination
     if(!full_body) {
         perror("malloc");
@@ -135,6 +133,8 @@ int handle_post(int client_fd, const char* buffer, int received_len) {
     full_body[expected_length] = '\0';
 
     printf("POST body (%d bytes):\n%s\n", expected_length, full_body);
+
+    parse_form_data(full_body);
 
     const char *response = "POST data received\n";
     snprintf(http_response, sizeof(http_response),
