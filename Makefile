@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-Wall -pthread
-OBJS=main.o http.o utils.o request.o
+OBJS=main.o http.o utils.o request.o router.o
 
 server: $(OBJS) #main file
 	$(CC) $(CFLAGS) -o server $(OBJS)
