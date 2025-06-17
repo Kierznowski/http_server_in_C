@@ -1,9 +1,20 @@
 CC=gcc
-CFLAGS=-Wall -pthread
-OBJS=main.o http.o utils.o request.o router.o
+CFLAGS=-Wall -pthread -I./src
+SRCDIR = src
+BUILDDIR = build
 
-server: $(OBJS) #main file
+SRCFILES = main.c http.c utils.c request.c router.c
+OBJFILES = $(SRCFILES:.c=.o)
+
+SRCS = $(addprefix $(SRCDIR)/, $(SRCFILES))
+OBJS = $(addprefix $(BUILDDIR)/, $(OBJFILES))
+
+server: $(OBJS)
 	$(CC) $(CFLAGS) -o server $(OBJS)
 
-clean:	#'make clean' command to remove compiled files
-	rm -f *o server 
+$(BUILDDIR)/%.o: $(SRCDIR)/%.c
+	@mkdir -p $(BUILDDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:	#'make clean' remove compiled files
+	rm -rf  $(BUILDDIR) server

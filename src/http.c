@@ -8,8 +8,7 @@
 #include "http.h"
 #include "utils.h"
 #include "router.h"
-
-#define BUFFER_SIZE 4096
+#include "config.h"
 
 int handle_get(int client_fd, const char* path, int send_body) {
     for (int i = 0; i < num_routes; i++) {
