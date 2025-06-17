@@ -7,10 +7,16 @@
 
 #include "http.h"
 #include "utils.h"
-
-#define BUFFER_SIZE 4096
+#include "router.h"
+#include "config.h"
 
 int handle_get(int client_fd, const char* path, int send_body) {
+    for (int i = 0; i < num_routes; i++) {
+        if (strcmp(path, routes[i].path) == 0) {
+            return routes[i].handler(client_fd);
+        }
+    }
+    
     char http_response[BUFFER_SIZE];
 
     if(strstr(path, "..")) {
@@ -28,6 +34,7 @@ int handle_get(int client_fd, const char* path, int send_body) {
     if(strcmp(path, "/") == 0) {
         path = "/index.html";
     }
+
 
     char file_path[1024];
     snprintf(file_path, sizeof(file_path), "./static%s", path);
@@ -134,7 +141,10 @@ int handle_post(int client_fd, const char* buffer, int received_len) {
 
     printf("POST body (%d bytes):\n%s\n", expected_length, full_body);
 
-    parse_form_data(full_body);
+    const char *ct_header = strstr(buffer, "Content-Type:");
+    if(ct_header && strstr(ct_header, "application/x-www-form-urlencoded")) {
+        parse_form_data(full_body);
+    }
 
     const char *response = "POST data received\n";
     snprintf(http_response, sizeof(http_response),
