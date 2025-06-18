@@ -6,11 +6,11 @@
 
 #define BUFFER_SIZE 4096
 
-route_t routes[] = {
+route_t get_routes[] = {
     {"/api/hello", handle_hello},
 };
 
-const int num_routes = sizeof(routes) / sizeof(route_t);
+int get_routes_num = 1;
 
 int handle_hello(int client_fd) {
     const char *body = "{\"message\": \"Hello from router!\"}";
