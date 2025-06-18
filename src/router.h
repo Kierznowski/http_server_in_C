@@ -6,8 +6,8 @@ typedef struct {
     int (*handler)(int client_fd);
 } route_t;
 
-extern route_t routes[];
-extern const int num_routes;
+extern route_t get_routes[];
+extern int get_routes_num;
 
 int handle_hello(int client_fd);
 

@@ -3,7 +3,7 @@ CFLAGS=-Wall -pthread -I./src
 SRCDIR = src
 BUILDDIR = build
 
-SRCFILES = main.c http.c utils.c request.c router.c
+SRCFILES = main.c http.c utils.c request.c router.c http_errors.c
 OBJFILES = $(SRCFILES:.c=.o)
 
 SRCS = $(addprefix $(SRCDIR)/, $(SRCFILES))

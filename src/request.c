@@ -1,6 +1,7 @@
 #include "config.h"
 #include "request.h"
 #include "http.h"
+#include "http_errors.h"
 
 #include <stdio.h>
 #include <time.h>
@@ -14,7 +15,6 @@ const char* get_header_value(const char* headers, const char* key);
 void handle_req_by_method(const char* method, char* path, int* response_code);
 
 int client_fd;
-char http_response[BUFFER_SIZE];
 char buffer[BUFFER_SIZE];
 int bytes_received;
 
@@ -88,19 +88,7 @@ void handle_req_by_method(const char* method, char* path, int* response_code) {
     } else if(strcmp(method, "OPTIONS") == 0) {
         *response_code = handle_options(client_fd);
     } else {
-        const char *body = "405 Method Not Allowed";
-        *response_code = 405;
-        snprintf(http_response, sizeof(http_response),
-            "HTTP/1.1 405 Method Not Allowed\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: %lu\r\n"
-            "Allow: GET, POST\r\n"
-            "\r\n"
-            "%s",
-            strlen(body),
-            body
-        );
-        send(client_fd, http_response, strlen(http_response), 0);
+        method_not_allowed_error(client_fd);
     }
 }
 

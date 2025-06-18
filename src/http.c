@@ -9,32 +9,24 @@
 #include "utils.h"
 #include "router.h"
 #include "config.h"
+#include "http_errors.h"
+
 
 int handle_get(int client_fd, const char* path, int send_body) {
-    for (int i = 0; i < num_routes; i++) {
-        if (strcmp(path, routes[i].path) == 0) {
-            return routes[i].handler(client_fd);
+
+    for (int i = 0; i < get_routes_num; i++) {
+        if (strcmp(path, get_routes[i].path) == 0) {
+            return get_routes[i].handler(client_fd);
         }
     }
-    
-    char http_response[BUFFER_SIZE];
 
     if(strstr(path, "..")) {
-        const char *body = "403 Forbidden";
-        snprintf(http_response, sizeof(http_response),
-            "HTTP/1.1 403 Forbidden\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: %lu\r\n"
-            "\r\n%s",
-            strlen(body), body);
-        send(client_fd, http_response, strlen(http_response), 0);
-        return 403;
+        return forbidden_error(client_fd);
     }
 
     if(strcmp(path, "/") == 0) {
         path = "/index.html";
     }
-
 
     char file_path[1024];
     snprintf(file_path, sizeof(file_path), "./static%s", path);
@@ -44,17 +36,7 @@ int handle_get(int client_fd, const char* path, int send_body) {
     const char* content_type = get_mime_type(path);
     
     if(!file_content) {
-        const char *body = "404 Not Found";
-        snprintf(http_response, sizeof(http_response),
-            "HTTP/1.1 404 Not Found\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: %lu\r\n"
-            "\r\n%s",
-            strlen(body),
-            body
-        );
-        send(client_fd, http_response, strlen(http_response), 0);
-        return 404;
+        return not_found_error(client_fd);
     }
 
     snprintf(http_response, sizeof(http_response),
@@ -73,18 +55,10 @@ int handle_get(int client_fd, const char* path, int send_body) {
 }
     
 int handle_post(int client_fd, const char* buffer, int received_len) {
-    char http_response[BUFFER_SIZE];
 
     const char *body_start = strstr(buffer, "\r\n\r\n");
     if (!body_start) {
-        const char *body = "400 Bad Request";
-        snprintf(http_response, sizeof(http_response),
-            "HTTP/1.1 400 Bad Request\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: %lu\r\n"
-            "\r\n%s", strlen(body), body);
-        send(client_fd, http_response, strlen(http_response), 0);
-        return 400;
+        return bad_request_error(client_fd);
     }
     body_start += 4; // set pointer
 
@@ -105,19 +79,13 @@ int handle_post(int client_fd, const char* buffer, int received_len) {
         }
         expected_length = atoi(len_buf); // converting char[] to int
     } else {
-        const char *body = "411 Length Required";
-        snprintf(http_response, sizeof(http_response),
-            "HTTP/1.1 411 Length Required\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: %lu\r\n"
-            "\r\n%s", strlen(body), body);
-        send(client_fd, http_response, strlen(http_response), 0);
-        return 411;
+        return length_required_error(client_fd);
     }
 
     char *full_body = malloc(expected_length + 1); // +1 for \0 termination
     if(!full_body) {
         perror("malloc");
+        internal_server_error(client_fd);
         close(client_fd);
         return 500;
     }
@@ -131,6 +99,7 @@ int handle_post(int client_fd, const char* buffer, int received_len) {
         if(r <= 0) {
             perror("recv (continuation)");
             free(full_body);
+            internal_server_error(client_fd);
             close(client_fd);
             return 500;
         }
@@ -154,7 +123,6 @@ int handle_post(int client_fd, const char* buffer, int received_len) {
         "\r\n"
         "%s", strlen(response), response);
     send(client_fd, http_response, strlen(http_response), 0);
-    
     free(full_body);
     return 200;
 }
@@ -173,3 +141,4 @@ int handle_options(int client_fd) {
     send(client_fd, response, strlen(response), 0);
     return 204;
 }
+
