@@ -11,9 +11,7 @@
 #include "config.h"
 #include "http_errors.h"
 
-
 int handle_get(int client_fd, const char* path, int send_body) {
-
     for (int i = 0; i < get_routes_num; i++) {
         if (strcmp(path, get_routes[i].path) == 0) {
             return get_routes[i].handler(client_fd);
@@ -28,32 +26,9 @@ int handle_get(int client_fd, const char* path, int send_body) {
         path = "/index.html";
     }
 
-    char file_path[1024];
-    snprintf(file_path, sizeof(file_path), "./static%s", path);
-
-    size_t file_size;
-    char *file_content = read_file(file_path, &file_size);
-    const char* content_type = get_mime_type(path);
-    
-    if(!file_content) {
-        return not_found_error(client_fd);
-    }
-
-    snprintf(http_response, sizeof(http_response),
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: %s\r\n"
-        "Content-Length: %lu\r\n"
-        "\r\n",
-        content_type,
-        file_size);
-    send(client_fd, http_response, strlen(http_response), 0);
-    if(send_body) {
-        send(client_fd, file_content, file_size, 0);
-    }
-    free(file_content);
-    return 200;
+    return serve_static_file(client_fd, path, send_body);
 }
-    
+
 int handle_post(int client_fd, const char* buffer, int received_len) {
 
     const char *body_start = strstr(buffer, "\r\n\r\n");
